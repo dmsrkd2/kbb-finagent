@@ -97,12 +97,12 @@ class NewsVectorStore:
     """Chroma 벡터 DB를 사용한 뉴스 저장소"""
     
     def __init__(self, persist_directory: str = "./chroma_db", collection_name: str = "news_collection"):
-        self.persist_directory = persist_directory
+        self.persist_directory = persist_directory  # 벡터 DB 데이터 저장할 로컬 폴더 경로
         self.collection_name = collection_name
         self.embeddings = OpenAIEmbeddings()
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
-            chunk_overlap=200,
+            chunk_overlap=200, # 다음 청크와 겹치는 부분 길이
             length_function=len
         )
         
@@ -115,7 +115,7 @@ class NewsVectorStore:
         except:
             self.collection = self.chroma_client.create_collection(
                 name=collection_name,
-                metadata={"hnsw:space": "cosine"}
+                metadata={"hnsw:space": "cosine"}   # 벡터간 유사도 측정 방식은 코사인 유사도를 사용
             )
         
         # LangChain Chroma 벡터스토어 초기화
@@ -128,16 +128,16 @@ class NewsVectorStore:
     
     def generate_content_hash(self, content: str) -> str:
         """콘텐츠 해시 생성 (중복 방지용)"""
-        return hashlib.md5(content.encode('utf-8')).hexdigest()
+        return hashlib.md5(content.encode('utf-8')).hexdigest() # content 문자열을 MD5 해시값으로 변환
     
     def is_content_duplicate(self, content_hash: str) -> bool:
         """콘텐츠 중복 여부 확인"""
         try:
-            results = self.collection.get(
+            results = self.collection.get(  # 메타데이터 기반 검색
                 where={"content_hash": content_hash},
-                limit=1
+                limit=1 # 1개만 찾음
             )
-            return len(results['ids']) > 0
+            return len(results['ids']) > 0  # 검색 결과 1개 이상이면 중복
         except:
             return False
     
@@ -146,9 +146,9 @@ class NewsVectorStore:
         try:
             # 벡터 유사도 검색
             docs = self.vectorstore.similarity_search_with_score(
-                query=f"{symbol} {date} {query}",
+                query=f"{symbol} {date} {query}",   # 벡터 검색을 위한 쿼리를 종목, 날짜, 키워드로 구성
                 k=k,
-                filter={
+                filter={                # 메타데이터 필터링
                     "symbol": symbol,
                     "date": date
                 }
@@ -256,8 +256,8 @@ class GoogleNewsSearcher:
                     news_list.append({
                         'title': item.get('title', ''),
                         'url': item.get('link', ''),
-                        'snippet': item.get('snippet', ''),
-                        'source': urlparse(item.get('link', '')).netloc,
+                        'snippet': item.get('snippet', ''), # 요약 본문
+                        'source': urlparse(item.get('link', '')).netloc,    # 뉴스 출처
                         'date': date,
                         'symbol': symbol
                     })
@@ -283,13 +283,13 @@ class NewsContentCrawler:
     def crawl_news_content(self, url: str) -> Optional[str]:
         """뉴스 본문 크롤링"""
         try:
-            response = requests.get(url, headers=self.headers, timeout=10)
+            response = requests.get(url, headers=self.headers, timeout=10)  # 10초 동안 서버 응답 기다림
             response.raise_for_status()
             
-            soup = BeautifulSoup(response.content, 'html.parser')
+            soup = BeautifulSoup(response.content, 'html.parser')   # html.parser 파싱 엔진으로 HTML 파싱
             
             # 일반적인 뉴스 본문 태그들
-            content_selectors = [
+            content_selectors = [   # html 태그
                 'div.news_content',
                 'div.article_body',
                 'div.article-content',
@@ -315,7 +315,7 @@ class NewsContentCrawler:
                 content = " ".join([p.get_text(strip=True) for p in paragraphs])
             
             # 텍스트 정리
-            content = re.sub(r'\s+', ' ', content)
+            content = re.sub(r'\s+', ' ', content)  # 정규표현식 사용. 하나 이상의 공백문자에 대해서 ' '로 변환
             content = content.strip()
             
             return content if len(content) > 100 else None
