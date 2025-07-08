@@ -9,6 +9,7 @@ import time
 
 
 from langchain.prompts import PromptTemplate
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 
 
@@ -22,8 +23,12 @@ class InvestmentAnalysisAgent:
         self.news_vectorstore = news_vector_store.NewsVectorStore(api_key = hyperclova_api_key)
         self.google_searcher = news_vector_store.GoogleNewsSearcher(google_api_key, google_search_engine_id)
         self.news_crawler = news_vector_store.NewsContentCrawler()
-        self.news_summarizer = news_vector_store.NewsContentSummarizer(self.hyperclova_llm)
         self.stock_analyzer = stock_data_analyzer.StockDataAnalyzer()
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200, # 다음 청크와 겹치는 부분 길이
+            length_function=len
+        )
         
         # 분석 프롬프트 템플릿
         self.analysis_prompt = PromptTemplate(
@@ -77,7 +82,7 @@ class InvestmentAnalysisAgent:
         
         # 3. 뉴스 본문 크롤링 및 처리
         processed_news = []
-        for news in news_results[:5]:  # 상위 5개만 처리
+        for news in news_results[:3]:  # 상위 3개만 처리
             print(f"📰 크롤링 중: {news['title'][:50]}...")
             
             # 본문 크롤링
@@ -85,14 +90,9 @@ class InvestmentAnalysisAgent:
             if not content:
                 continue
             
-            # 키워드 추출
-            keywords = self.news_summarizer.extract_keywords(content, symbol)
-            
             # 텍스트 분할
-            chunks = self.news_summarizer.text_splitter.split_text(content)
-            
-            # 청크 요약
-            summarized_chunks = self.news_summarizer.summarize_chunks(chunks)
+            chunks = self.text_splitter.split_text(content)
+
             
             # 뉴스 데이터 구성
             news_data = {
@@ -101,16 +101,14 @@ class InvestmentAnalysisAgent:
                 'title': news['title'],
                 'url': news['url'],
                 'source': news['source'],
-                'keywords': keywords,
                 'content': content
             }
             
             # 벡터 DB에 저장
-            if self.news_vectorstore.store_news_chunks(news_data, summarized_chunks):
+            if self.news_vectorstore.store_news_chunks(news_data, chunks):
                 processed_news.append({
                     'title': news['title'],
-                    'content': ' '.join(summarized_chunks[:3]),  # 상위 3개 청크만
-                    'keywords': keywords,
+                    'content': ' '.join(chunks[:3]),  # 상위 3개 청크만
                     'relevance_score': self.calculate_relevance_score(content, symbol)
                 })
             
@@ -134,7 +132,8 @@ class InvestmentAnalysisAgent:
     def analyze_single_trade(self, trade_row: pd.Series) -> Dict:
         """단일 매매 건 분석"""
         symbol = trade_row['Symbol']
-        date = trade_row['Date'].strftime('%Y-%m-%d')
+        date = datetime.strptime(trade_row['Date'], '%Y-%m-%d')
+        date = date.strftime('%Y-%m-%d')
         trade_type = trade_row['TradeType']
         price = trade_row['Price']
         quantity = trade_row['Quantity']
@@ -161,7 +160,7 @@ class InvestmentAnalysisAgent:
             'relevant_news': relevant_news
         }
     
-    def generate_analysis_report(self, trade_analysis: Dict) -> str:
+    def generate_analysis_report(self, trade_analysis: Dict) -> str:    # 여기 나중에 오류 생길만 한데 어짜피 바꿔야해서 냅둘게
         """LangChain을 사용한 분석 리포트 생성"""
         
         # 입력 데이터 포맷팅

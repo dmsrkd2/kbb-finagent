@@ -10,14 +10,13 @@ from urllib.parse import urlparse
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
 from langchain_naver import ClovaXEmbeddings
+from langchain.schema import Document
 
 
 # Chroma
 import chromadb
 
 warnings.filterwarnings('ignore')
-
-
 
 
 
@@ -63,7 +62,7 @@ class NewsVectorStore:
         """콘텐츠 중복 여부 확인"""
         # 벡터 DB 내에 중복 뉴스 있는지 확인
         try:
-            result = self.vectorstore.similarity_search_with_score_by_vector(
+            result = self.vectorstore.similarity_search_with_vector(
                 query_embedding = query_vec,
                 k = 1,      # 가장 유사도 높은거 하나만 가져옴
                 filter ={
@@ -129,7 +128,7 @@ class NewsVectorStore:
     def store_news_chunks(self, news_data: Dict, chunks: List[str]) -> bool:
         """ 뉴스 중복 확인 후 벡터 DB 저장"""
         try:
-
+            documents = []
             for i, chunk in enumerate(chunks):
 
                 embed_vec = self.chunk_vectorize(chunk)
@@ -156,13 +155,15 @@ class NewsVectorStore:
                 }
             
 
-            
                 # 벡터 DB에 저장
-                self.vectorstore.add_embeddings(
-                    texts = [chunk],
-                    embeddings = [embed_vec],
-                    metadata = [metadata]
+                doc = Document(
+                    page_content = chunk,
+                    metadata = metadata
                 )
+                documents.append(doc)      
+
+                if documents:          
+                    self.vectorstore.add_documents(documents)
             return True
             
         except Exception as e:
