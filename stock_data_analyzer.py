@@ -1,9 +1,7 @@
 import pandas as pd
-import yfinance as yf
 from typing import Dict
+import yfinance as yf
 from datetime import datetime, timedelta
-
-    
 
 
 class StockDataAnalyzer:
