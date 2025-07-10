@@ -1,0 +1,175 @@
+import os
+import pandas as pd
+import time
+import pickle
+from datetime import datetime
+from tqdm import tqdm
+
+# 필요한 라이브러리 설치
+try:
+    from pykrx import stock
+    import OpenDartReader
+except ImportError:
+    print("필요한 라이브러리를 설치합니다: pykrx, opendart-reader")
+    os.system('pip install pykrx opendart-reader')
+    from pykrx import stock
+    import OpenDartReader
+
+API_KEY = "d0b5481910c88f02bb332a42ed66ba0a22c06281"
+CACHE_DIR = 'dart_cache'
+OUTPUT_FILENAME = 'quarterly_pbr_all_stocks.csv'
+
+if not os.path.exists(CACHE_DIR):
+    os.makedirs(CACHE_DIR)
+
+def get_quarterly_average_price(ticker, year, quarter):
+    if quarter == 1:
+        start_date, end_date = f"{year}0101", f"{year}0331"
+    elif quarter == 2:
+        start_date, end_date = f"{year}0401", f"{year}0630"
+    elif quarter == 3:
+        start_date, end_date = f"{year}0701", f"{year}0930"
+    else:
+        start_date, end_date = f"{year}1001", f"{year}1231"
+
+    try:
+        time.sleep(0.1)
+        df_price = stock.get_market_ohlcv(start_date, end_date, ticker)
+        if df_price.empty:
+            return None
+        return df_price['종가'].mean()
+    except Exception:
+        return None
+
+def get_data_with_cache(api_call_func, cache_key):
+    cache_path = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
+    
+    if os.path.exists(cache_path):
+        with open(cache_path, 'rb') as f:
+            return pickle.load(f)
+    
+    try:
+        time.sleep(0.5)
+        data = api_call_func()
+        with open(cache_path, 'wb') as f:
+            pickle.dump(data, f)
+        return data
+    except Exception:
+        with open(cache_path, 'wb') as f:
+            pickle.dump(None, f)
+        return None
+
+def extract_total_equity(df_fs):
+    if df_fs is None or df_fs.empty:
+        return None
+    
+    df_equity = df_fs[df_fs['account_nm'] == '자본총계']
+    if df_equity.empty:
+        return None
+        
+    equity_cfs = df_equity[df_equity['sj_div'] == 'CFS']
+    if not equity_cfs.empty:
+        amount_str = equity_cfs.iloc[0]['thstrm_amount']
+        return int(amount_str.replace(',', '')) if amount_str else None
+        
+    equity_ofs = df_equity[df_equity['sj_div'] == 'OFS']
+    if not equity_ofs.empty:
+        amount_str = equity_ofs.iloc[0]['thstrm_amount']
+        return int(amount_str.replace(',', '')) if amount_str else None
+        
+    return None
+
+def extract_outstanding_shares(df_shares):
+    if df_shares is None or df_shares.empty:
+        return None
+    
+    common_shares = df_shares[df_shares['se'] == '보통주식 (주)']
+    if not common_shares.empty:
+        shares_str = common_shares.iloc[0]['istc_totqy']
+        return int(shares_str.replace(',', '')) if shares_str else None
+    return None
+
+def calculate_bps(total_equity, outstanding_shares):
+    if total_equity is None or outstanding_shares is None or outstanding_shares == 0:
+        return None
+    return total_equity / outstanding_shares
+
+def calculate_pbr(average_price, bps):
+    if average_price is None or bps is None or bps == 0:
+        return None
+    return average_price / bps
+
+def main():
+    if not API_KEY or API_KEY == "your_api_key":
+        print("!!! 경고: Open DART API 인증키를 설정해야 합니다.!!!")
+        return
+    dart = OpenDartReader(API_KEY)
+
+    print("KOSPI, KOSDAQ 전 종목 목록을 수집합니다...")
+    today = datetime.now().strftime('%Y%m%d')
+    all_tickers_info = []
+    for market in ['KOSPI', 'KOSDAQ']:
+        tickers = stock.get_market_ticker_list(date=today, market=market)
+        for ticker in tickers:
+            name = stock.get_market_ticker_name(ticker)
+            all_tickers_info.append({'Ticker': ticker, 'Name': name})
+    df_master = pd.DataFrame(all_tickers_info)
+    print(f"총 {len(df_master)}개 종목 수집 완료.")
+
+    quarters_to_process = []
+    for year in range(2022, 2026):
+        for quarter in range(1, 5):
+            if year == 2025 and quarter > 1:
+                continue
+            quarters_to_process.append({'year': year, 'quarter': quarter})
+    
+    report_codes = {1: '11013', 2: '11012', 3: '11014', 4: '11011'}
+
+    all_results = []
+    
+    pbar = tqdm(df_master.iterrows(), total=len(df_master), desc="전체 종목 처리 중")
+    for index, row in pbar:
+        ticker, name = row['Ticker'], row['Name']
+        pbar.set_postfix_str(f"{name}({ticker})")
+
+        for q_info in quarters_to_process:
+            year, quarter = q_info['year'], q_info['quarter']
+            report_code = report_codes[quarter]
+            
+            avg_price = get_quarterly_average_price(ticker, year, quarter)
+            if avg_price is None:
+                continue
+
+            fs_cache_key = f"{ticker}_{year}_{report_code}_fs"
+            df_fs = get_data_with_cache(lambda: dart.finstate_all(ticker, year, report_code), fs_cache_key)
+            
+            shares_cache_key = f"{ticker}_{year}_{report_code}_shares"
+            df_shares = get_data_with_cache(lambda: dart.corp_outstanding_stock_issue(ticker, year, report_code), shares_cache_key)
+
+            total_equity = extract_total_equity(df_fs)
+            outstanding_shares = extract_outstanding_shares(df_shares)
+            bps = calculate_bps(total_equity, outstanding_shares)
+            pbr = calculate_pbr(avg_price, bps)
+
+            if pbr is not None:
+                quarter_str = f"{str(year)[2:]}년 {quarter}분기"
+                all_results.append({
+                    'Ticker': ticker,
+                    'Name': name,
+                    'Quarter': quarter_str,
+                    'PBR': pbr
+                })
+
+    if not all_results:
+        print("처리된 데이터가 없습니다. API 키 또는 네트워크 연결을 확인하세요.")
+        return
+
+    print("\n결과를 CSV 파일 형식으로 변환합니다...")
+    df_long = pd.DataFrame(all_results)
+    df_wide = df_long.pivot_table(index='Ticker', columns='Quarter', values='PBR').reset_index()
+    df_wide.columns = ['Ticker'] + [f"{col}_PBR" for col in df_wide.columns[1:]]
+    df_wide.to_csv(OUTPUT_FILENAME, index=False, encoding='utf-8-sig')
+    print(f"\n모든 작업이 완료되었습니다. 결과가 '{OUTPUT_FILENAME}' 파일에 저장되었습니다.")
+
+if __name__ == '__main__':
+    main()
