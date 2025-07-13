@@ -13,16 +13,19 @@ def main():
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     GOOGLE_SEARCH_ENGINE_ID = os.getenv("GOOGLE_SEARCH_ENGINE_ID")
 
-    
+    # 매매 데이터 파일 경로
+    csv_file_path = "trading_data.csv"
+    pbr_csv_path = "pbr_data.csv"
+
     # AI Agent 초기화
     agent = investment_agent.InvestmentAnalysisAgent(
         hyperclova_api_key=HYPERCLOVA_API_KEY,
         google_api_key=GOOGLE_API_KEY,
         google_search_engine_id=GOOGLE_SEARCH_ENGINE_ID
+        pbr_csv_path = pbr_csv_path
     )
     
-    # 매매 데이터 파일 경로
-    csv_file_path = "trading_data.csv"
+
     
     try:
         print("🚀 투자 매매내역 분석 AI Agent 시작")
