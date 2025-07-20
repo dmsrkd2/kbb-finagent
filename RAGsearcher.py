@@ -218,8 +218,8 @@ class NewsContentCrawler:
 
 if __name__ == '__main__':
     # 테스트 실행
-    client_id = "ydTKk3TTnytTEkyEfKhS"  # 실제 client_id 입력
-    client_secret = "gOzF8p0re5"  # 실제 client_secret 입력
+    client_id = ""  # 실제 client_id 입력
+    client_secret = ""  # 실제 client_secret 입력
     
     naverblogsearcher = NaverBlogSearcher(client_id, client_secret)
     news_list = naverblogsearcher.search_news('sk하이닉스', '2025년 4월 3일')
